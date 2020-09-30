@@ -34,12 +34,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
-
-	"github.com/pkg/errors"
 )
 
 // Client is a client for interacting with a GraphQL API.
@@ -106,7 +105,7 @@ func (c *Client) runWithJSON(ctx context.Context, req *Request, resp interface{}
 		Variables: req.vars,
 	}
 	if err := json.NewEncoder(&requestBody).Encode(requestBodyObj); err != nil {
-		return errors.Wrap(err, "encode body")
+		return fmt.Errorf("encode body: %w", err)
 	}
 	c.logf(">> variables: %v", req.vars)
 	c.logf(">> query: %s", req.q)
@@ -133,15 +132,15 @@ func (c *Client) runWithJSON(ctx context.Context, req *Request, resp interface{}
 	}
 	defer res.Body.Close()
 	var buf bytes.Buffer
-	if _, err := io.Copy(&buf, res.Body); err != nil {
-		return errors.Wrap(err, "reading body")
+	if _, err = io.Copy(&buf, res.Body); err != nil {
+		return fmt.Errorf("reading body: %w", err)
 	}
 	c.logf("<< %s", buf.String())
-	if err := json.NewDecoder(&buf).Decode(&gr); err != nil {
+	if err = json.NewDecoder(&buf).Decode(&gr); err != nil {
 		if res.StatusCode != http.StatusOK {
 			return fmt.Errorf("graphql: server returned a non-200 status code: %v", res.StatusCode)
 		}
-		return errors.Wrap(err, "decoding response")
+		return fmt.Errorf("decoding response: %w", err)
 	}
 	if len(gr.Errors) > 0 {
 		// return first error
@@ -154,29 +153,29 @@ func (c *Client) runWithPostFields(ctx context.Context, req *Request, resp inter
 	var requestBody bytes.Buffer
 	writer := multipart.NewWriter(&requestBody)
 	if err := writer.WriteField("query", req.q); err != nil {
-		return errors.Wrap(err, "write query field")
+		return fmt.Errorf("write query field: %w", err)
 	}
 	var variablesBuf bytes.Buffer
 	if len(req.vars) > 0 {
 		variablesField, err := writer.CreateFormField("variables")
 		if err != nil {
-			return errors.Wrap(err, "create variables field")
+			return fmt.Errorf("create variables field: %w", err)
 		}
 		if err := json.NewEncoder(io.MultiWriter(variablesField, &variablesBuf)).Encode(req.vars); err != nil {
-			return errors.Wrap(err, "encode variables")
+			return fmt.Errorf("encode variables: %w", err)
 		}
 	}
 	for i := range req.files {
 		part, err := writer.CreateFormFile(req.files[i].Field, req.files[i].Name)
 		if err != nil {
-			return errors.Wrap(err, "create form file")
+			return fmt.Errorf("create form file: %w", err)
 		}
 		if _, err := io.Copy(part, req.files[i].R); err != nil {
-			return errors.Wrap(err, "preparing file")
+			return fmt.Errorf("preparing file: %w", err)
 		}
 	}
 	if err := writer.Close(); err != nil {
-		return errors.Wrap(err, "close writer")
+		return fmt.Errorf("close writer: %w", err)
 	}
 	c.logf(">> variables: %s", variablesBuf.String())
 	c.logf(">> files: %d", len(req.files))
@@ -204,15 +203,15 @@ func (c *Client) runWithPostFields(ctx context.Context, req *Request, resp inter
 	}
 	defer res.Body.Close()
 	var buf bytes.Buffer
-	if _, err := io.Copy(&buf, res.Body); err != nil {
-		return errors.Wrap(err, "reading body")
+	if _, err = io.Copy(&buf, res.Body); err != nil {
+		return fmt.Errorf("reading body: %w", err)
 	}
 	c.logf("<< %s", buf.String())
-	if err := json.NewDecoder(&buf).Decode(&gr); err != nil {
+	if err = json.NewDecoder(&buf).Decode(&gr); err != nil {
 		if res.StatusCode != http.StatusOK {
 			return fmt.Errorf("graphql: server returned a non-200 status code: %v", res.StatusCode)
 		}
-		return errors.Wrap(err, "decoding response")
+		return fmt.Errorf("decoding response: %w", err)
 	}
 	if len(gr.Errors) > 0 {
 		// return first error
@@ -224,9 +223,9 @@ func (c *Client) runWithPostFields(ctx context.Context, req *Request, resp inter
 // WithHTTPClient specifies the underlying http.Client to use when
 // making requests.
 //  NewClient(endpoint, WithHTTPClient(specificHTTPClient))
-func WithHTTPClient(httpclient *http.Client) ClientOption {
+func WithHTTPClient(httpClient *http.Client) ClientOption {
 	return func(client *Client) {
-		client.httpClient = httpclient
+		client.httpClient = httpClient
 	}
 }
 
@@ -238,7 +237,7 @@ func UseMultipartForm() ClientOption {
 	}
 }
 
-//ImmediatelyCloseReqBody will close the req body immediately after each request body is ready
+// ImmediatelyCloseReqBody will close the req body immediately after each request body is ready
 func ImmediatelyCloseReqBody() ClientOption {
 	return func(client *Client) {
 		client.closeReq = true
@@ -308,9 +307,9 @@ func (req *Request) Query() string {
 // File sets a file to upload.
 // Files are only supported with a Client that was created with
 // the UseMultipartForm option.
-func (req *Request) File(fieldname, filename string, r io.Reader) {
+func (req *Request) File(fieldName, filename string, r io.Reader) {
 	req.files = append(req.files, File{
-		Field: fieldname,
+		Field: fieldName,
 		Name:  filename,
 		R:     r,
 	})
